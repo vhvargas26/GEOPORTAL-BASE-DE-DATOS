@@ -1,180 +1,117 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Geoportal de Reportes</title>
-  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
-  <style>
-    html, body, #map { height: 100%; margin: 0; }
-    .form-popup {
-      position: absolute;
-      top: 10%;
-      right: 10px;
-      width: 320px;
-      background: #fff;
-      padding: 20px;
-      border: 1px solid #ccc;
-      box-shadow: 2px 2px 12px rgba(0,0,0,0.2);
-      z-index: 1000;
-      overflow-y: auto;
-      max-height: 80%;
-    }
-    input, textarea, button, select { width: 100%; padding: 8px; margin-top: 5px; }
-    button { background-color: #007bff; color: white; border: none; margin-top: 15px; }
-    .btn-ubicacion { background-color: #28a745; }
-    .leyenda {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      background: white;
-      padding: 10px;
-      border-radius: 6px;
-      box-shadow: 0 0 6px rgba(0,0,0,0.3);
-      font-family: sans-serif;
-    }
-    .leyenda div { margin-bottom: 4px; }
-    .dot {
-      height: 12px;
-      width: 12px;
-      border-radius: 50%;
-      display: inline-block;
-      margin-right: 6px;
-    }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
+  <meta charset="UTF-8" />
+  <title>Geoportal de Aeropuertos</title>
+  <script type="module">
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
 
-  <div class="leyenda">
-    <strong>Tipos de Reportes</strong>
-    <div><span class="dot" style="background: #007bff;"></span> Agua Potable</div>
-    <div><span class="dot" style="background: red;"></span> Seguridad</div>
-    <div><span class="dot" style="background: orange;"></span> Vialidad</div>
-    <div><span class="dot" style="background: purple;"></span> Otros</div>
-  </div>
+    const supabaseUrl = "https://pzaxjeqmcqcklaflnbdy.supabase.co";
+    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw";
+    const client = createClient(supabaseUrl, supabaseKey);
 
-  <div class="form-popup">
-    <h3 style="text-align:center;">Formulario de Reportes</h3>
-    <label>Nombre:</label>
-    <input type="text" id="nombre">
-
-    <label>Tipo de problema:</label>
-    <select id="tipo_problema">
-      <option value="">Selecciona un tipo</option>
-      <option value="Bache">Bache</option>
-      <option value="Alumbrado público">Alumbrado público</option>
-      <option value="Basura">Basura</option>
-      <option value="Semáforo">Semáforo</option>
-      <option value="Agua potable">Agua potable</option>
-      <option value="Alcantarillado">Alcantarillado</option>
-      <option value="Seguridad">Seguridad</option>
-      <option value="Vialidad">Vialidad</option>
-      <option value="Otro">Otro</option>
-    </select>
-
-    <label>Observaciones:</label>
-    <textarea id="observaciones" placeholder="Describe el problema en detalle..."></textarea>
-
-    <button class="btn-ubicacion" onclick="obtenerUbicacion()">📍 Obtener mi ubicación actual</button>
-
-    <label>Latitud:</label>
-    <input type="number" id="latitud" step="any">
-
-    <label>Longitud:</label>
-    <input type="number" id="longitud" step="any">
-
-    <button onclick="enviarReporte()">Enviar Reporte</button>
-  </div>
-
-  <script>
-    const supabase = window.supabase.createClient(
-      'https://pzaxjeqmcqcklaflnbdy.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw'
-    );
-
-    const telegramToken = '7281702509:AAG7_xE-oz3bsacGXDqL8cwSnioUyB2LGRw';
-    const telegramChatId = '5153327688';
-
-    const tipoColores = {
-      "Agua potable": "#007bff",
-      "Seguridad": "red",
-      "Vialidad": "orange",
-      "Otro": "purple"
-    };
-
-    const map = L.map('map').setView([-1.5, -78.5], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-    }).addTo(map);
-
-    async function cargarReportes() {
-      const { data, error } = await supabase.from('reporte_usuarios').select('*');
-      if (data) {
-        data.forEach(r => {
-          if (r.latitud && r.longitud) {
-            const color = tipoColores[r.tipo] || 'gray';
-            const marker = L.circleMarker([r.latitud, r.longitud], {
-              color,
-              radius: 8,
-              fillOpacity: 0.8
-            }).addTo(map);
-            marker.bindPopup(`<strong>${r.nombre}</strong><br>${r.tipo}<br>${r.observaciones}`);
-          }
-        });
+    async function cargarProvincias() {
+      const { data, error } = await client.from("canton").select("PRO_DESCRI").order("PRO_DESCRI", { ascending: true });
+      if (error) {
+        alert("Error cargando provincias");
+        return;
       }
+      const provincias = [...new Set(data.map(item => item.PRO_DESCRI))];
+      const select = document.getElementById("provincia");
+      provincias.forEach(p => {
+        const option = document.createElement("option");
+        option.value = p;
+        option.text = p;
+        select.appendChild(option);
+      });
     }
-    cargarReportes();
 
-    function obtenerUbicacion() {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition((position) => {
-          document.getElementById('latitud').value = position.coords.latitude;
-          document.getElementById('longitud').value = position.coords.longitude;
-        }, () => alert("No se pudo obtener la ubicación"));
-      } else {
-        alert("Geolocalización no soportada por el navegador");
+    async function cargarCantones() {
+      const provincia = document.getElementById("provincia").value;
+      const { data, error } = await client.from("canton").select("CAN_DESCRI").eq("PRO_DESCRI", provincia).order("CAN_DESCRI");
+      if (error) {
+        alert("Error cargando cantones");
+        return;
       }
+      const select = document.getElementById("canton");
+      select.innerHTML = "";
+      data.forEach(c => {
+        const option = document.createElement("option");
+        option.value = c.CAN_DESCRI;
+        option.text = c.CAN_DESCRI;
+        select.appendChild(option);
+      });
     }
 
-    async function enviarReporte() {
-      const nombre = document.getElementById('nombre').value.trim();
-      const tipo = document.getElementById('tipo_problema').value.trim();
-      const obs = document.getElementById('observaciones').value.trim();
-      const lat = parseFloat(document.getElementById('latitud').value);
-      const lon = parseFloat(document.getElementById('longitud').value);
+    async function buscarAeropuertos() {
+      const provincia = document.getElementById("provincia").value;
+      const canton = document.getElementById("canton").value;
 
-      if (!nombre || !tipo || isNaN(lat) || isNaN(lon)) {
-        alert("Por favor completa todos los campos obligatorios");
+      const { data, error } = await client.rpc("get_canton_geom", {
+        provincia_nombre: provincia,
+        canton_nombre: canton
+      });
+
+      if (error || !data || data.length === 0) {
+        alert("No se pudo obtener geometría del cantón.");
         return;
       }
 
-      const { error } = await supabase.from('reporte_usuarios').insert([{ nombre, tipo, observaciones: obs, latitud: lat, longitud: lon }]);
+      const { data: aeropuertos, error: error2 } = await client.rpc("get_aeropuertos_en_canton", {
+        canton_geom: data[0].geom
+      });
 
-      if (error) {
-        alert("Error al guardar el reporte: " + error.message);
-      } else {
-        const mensaje = `Nuevo Reporte:%0ANombre: ${nombre}%0ATipo: ${tipo}%0AObs: ${obs}%0ALat: ${lat}%0ALon: ${lon}`;
-        fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage?chat_id=${telegramChatId}&text=${mensaje}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.ok) {
-              alert("Reporte enviado exitosamente y notificado en Telegram");
-              cargarReportes();
-            } else {
-              console.error("Error de Telegram:", data);
-              alert("Reporte enviado, pero fallo notificación en Telegram");
-            }
-          });
-
-        document.getElementById('nombre').value = '';
-        document.getElementById('tipo_problema').value = '';
-        document.getElementById('observaciones').value = '';
-        document.getElementById('latitud').value = '';
-        document.getElementById('longitud').value = '';
+      if (error2 || !aeropuertos || aeropuertos.length === 0) {
+        alert("No se encontraron aeropuertos.");
+        return;
       }
+
+      window.geojsonData = {
+        type: "FeatureCollection",
+        features: aeropuertos.map(a => ({
+          type: "Feature",
+          geometry: JSON.parse(a.geom),
+          properties: {
+            nombre: a.nombre,
+            uso: a.uso
+          }
+        }))
+      };
+
+      alert(`Se encontraron ${aeropuertos.length} aeropuertos.`);
     }
+
+    function descargarGeoJSON() {
+      if (!window.geojsonData) {
+        alert("Primero debes realizar una búsqueda.");
+        return;
+      }
+      const blob = new Blob([JSON.stringify(window.geojsonData)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "aeropuertos.geojson";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      cargarProvincias();
+      document.getElementById("provincia").addEventListener("change", cargarCantones);
+      document.getElementById("buscarBtn").addEventListener("click", buscarAeropuertos);
+      document.getElementById("descargarBtn").addEventListener("click", descargarGeoJSON);
+    });
   </script>
+</head>
+<body>
+  <h2>Geoportal de Aeropuertos por Provincia y Cantón</h2>
+  <label>Provincia: 
+    <select id="provincia"><option value="">Seleccione</option></select>
+  </label>
+  <label> Cantón:
+    <select id="canton"><option value="">Seleccione</option></select>
+  </label>
+  <button id="buscarBtn">Buscar</button>
+  <button id="descargarBtn">Descargar GeoJSON</button>
 </body>
 </html>
