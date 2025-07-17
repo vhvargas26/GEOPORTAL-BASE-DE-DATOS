@@ -1,117 +1,83 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Geoportal de Aeropuertos</title>
-  <script type="module">
-    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
-
-    const supabaseUrl = "https://pzaxjeqmcqcklaflnbdy.supabase.co";
-    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw";
-    const client = createClient(supabaseUrl, supabaseKey);
-
-    async function cargarProvincias() {
-      const { data, error } = await client.from("canton").select("PRO_DESCRI").order("PRO_DESCRI", { ascending: true });
-      if (error) {
-        alert("Error cargando provincias");
-        return;
-      }
-      const provincias = [...new Set(data.map(item => item.PRO_DESCRI))];
-      const select = document.getElementById("provincia");
-      provincias.forEach(p => {
-        const option = document.createElement("option");
-        option.value = p;
-        option.text = p;
-        select.appendChild(option);
-      });
-    }
-
-    async function cargarCantones() {
-      const provincia = document.getElementById("provincia").value;
-      const { data, error } = await client.from("canton").select("CAN_DESCRI").eq("PRO_DESCRI", provincia).order("CAN_DESCRI");
-      if (error) {
-        alert("Error cargando cantones");
-        return;
-      }
-      const select = document.getElementById("canton");
-      select.innerHTML = "";
-      data.forEach(c => {
-        const option = document.createElement("option");
-        option.value = c.CAN_DESCRI;
-        option.text = c.CAN_DESCRI;
-        select.appendChild(option);
-      });
-    }
-
-    async function buscarAeropuertos() {
-      const provincia = document.getElementById("provincia").value;
-      const canton = document.getElementById("canton").value;
-
-      const { data, error } = await client.rpc("get_canton_geom", {
-        provincia_nombre: provincia,
-        canton_nombre: canton
-      });
-
-      if (error || !data || data.length === 0) {
-        alert("No se pudo obtener geometría del cantón.");
-        return;
-      }
-
-      const { data: aeropuertos, error: error2 } = await client.rpc("get_aeropuertos_en_canton", {
-        canton_geom: data[0].geom
-      });
-
-      if (error2 || !aeropuertos || aeropuertos.length === 0) {
-        alert("No se encontraron aeropuertos.");
-        return;
-      }
-
-      window.geojsonData = {
-        type: "FeatureCollection",
-        features: aeropuertos.map(a => ({
-          type: "Feature",
-          geometry: JSON.parse(a.geom),
-          properties: {
-            nombre: a.nombre,
-            uso: a.uso
-          }
-        }))
-      };
-
-      alert(`Se encontraron ${aeropuertos.length} aeropuertos.`);
-    }
-
-    function descargarGeoJSON() {
-      if (!window.geojsonData) {
-        alert("Primero debes realizar una búsqueda.");
-        return;
-      }
-      const blob = new Blob([JSON.stringify(window.geojsonData)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "aeropuertos.geojson";
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-      cargarProvincias();
-      document.getElementById("provincia").addEventListener("change", cargarCantones);
-      document.getElementById("buscarBtn").addEventListener("click", buscarAeropuertos);
-      document.getElementById("descargarBtn").addEventListener("click", descargarGeoJSON);
-    });
-  </script>
+  <meta charset="utf-8" />
+  <title>Geoportal Supabase</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    #map { height: 100vh; }
+    .legend { background: white; padding: 6px; font-size: 12px; }
+  </style>
 </head>
 <body>
-  <h2>Geoportal de Aeropuertos por Provincia y Cantón</h2>
-  <label>Provincia: 
-    <select id="provincia"><option value="">Seleccione</option></select>
-  </label>
-  <label> Cantón:
-    <select id="canton"><option value="">Seleccione</option></select>
-  </label>
-  <button id="buscarBtn">Buscar</button>
-  <button id="descargarBtn">Descargar GeoJSON</button>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const SUPABASE_URL = "https://pzaxjeqmcqcklaflnbdy.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw";
+
+    const layers = [
+      'aeropuertos', 'acueducto_l', 'canton', 'casa_p', 'curva_nivel_l',
+      'caracteristica_terreno_a', 'parroquias', 'pueblos', 'rio_a', 'poblados',
+      'puente_p', 'sendero_l', 'reporte_usuarios', 'via_paltas', 'provincias',
+      'vias', 'zona_urbana_a'
+    ];
+
+    const map = L.map('map').setView([-3.99, -79.2], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    const layerControl = L.control.layers(null, null, { collapsed: false }).addTo(map);
+
+    async function loadLayer(tableName, color = 'blue') {
+      const url = `${SUPABASE_URL}/rest/v1/${tableName}?select=*&apikey=${SUPABASE_KEY}`;
+      const res = await fetch(url, {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!data.length) return;
+
+      const geojson = {
+        type: "FeatureCollection",
+        features: data.map(row => {
+          return {
+            type: "Feature",
+            geometry: row.geometry || row.geom,
+            properties: row
+          };
+        })
+      };
+
+      const layer = L.geoJSON(geojson, {
+        style: { color },
+        onEachFeature: function (feature, layer) {
+          let props = feature.properties;
+          let popupContent = "<b>" + tableName + "</b><br>" + Object.entries(props).map(([k, v]) => `${k}: ${v}`).join("<br>");
+          layer.bindPopup(popupContent);
+        }
+      });
+
+      layer.addTo(map);
+      layerControl.addOverlay(layer, tableName);
+    }
+
+    // Colores alternos para diferenciar capas
+    const colors = ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00',
+                    '#ffff33','#a65628','#f781bf','#999999','#66c2a5',
+                    '#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f',
+                    '#e5c494','#b3b3b3'];
+
+    layers.forEach((layerName, i) => {
+      loadLayer(layerName, colors[i % colors.length]);
+    });
+  </script>
 </body>
 </html>
+
