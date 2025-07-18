@@ -1,0 +1,75 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Geoportal Clasificación Pendiente</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { font-family: Arial, sans-serif; padding: 10px; }
+    #map { height: 400px; margin-top: 10px; }
+    .info { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>📍 Clasificación del Terreno por Coordenadas UTM (Zona 17S)</h2>
+  <label>Este (UTM): <input id="utmX" type="number" value="650534" /></label>
+  <label>Norte (UTM): <input id="utmY" type="number" value="9551151" /></label>
+  <button onclick="clasificar()">🌟 Clasificar</button>
+  <div class="info" id="resultado"></div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/proj4"></script>
+  <script>
+    const map = L.map('map').setView([-4.058, -79.582], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    let marker;
+
+    function clasificar() {
+      const utmX = parseFloat(document.getElementById("utmX").value);
+      const utmY = parseFloat(document.getElementById("utmY").value);
+
+      if (isNaN(utmX) || isNaN(utmY)) {
+        document.getElementById("resultado").innerHTML = "<span style='color:red'>❌ Coordenadas inválidas</span>";
+        return;
+      }
+
+      // Simular resultado (en una app real vendría del backend)
+      const resultado = {
+        utm_x: utmX,
+        utm_y: utmY,
+        pendiente: 14.5,
+        clasificacion: "Terreno montañoso",
+        altura: 2040,
+        curva_mas_cercana: "920",
+        fecha: new Date().toISOString()
+      };
+
+      // Mostrar resultados
+      document.getElementById("resultado").innerHTML = `
+        ✅ Clasificación del terreno: <b>${resultado.clasificacion}</b><br>
+        ➤ Pendiente estimada: <b>${resultado.pendiente.toFixed(1)}%</b><br>
+        ➤ Altura estimada: <b>${resultado.altura} m</b><br>
+        ➤ Curva más cercana: <b>${resultado.curva_mas_cercana} m</b><br>
+        📅 Fecha: ${new Date(resultado.fecha).toLocaleString()}
+      `;
+
+      // Convertir coordenadas UTM zona 17S a lat/lon
+      proj4.defs("EPSG:32717","+proj=utm +zone=17 +south +datum=WGS84 +units=m +no_defs");
+      const [lon, lat] = proj4("EPSG:32717", "WGS84", [utmX, utmY]);
+
+      // Mostrar en el mapa
+      if (marker) map.removeLayer(marker);
+      marker = L.marker([lat, lon]).addTo(map)
+        .bindPopup(`Ubicación consultada<br>Altura estimada: ${resultado.altura} m`)
+        .openPopup();
+      map.setView([lat, lon], 17);
+    }
+  </script>
+</body>
+</html>

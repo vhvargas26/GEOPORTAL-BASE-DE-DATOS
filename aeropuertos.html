@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Geoportal Supabase - Guardar Consulta</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    #map { height: 85vh; }
+    #filters { padding: 10px; background: white; }
+  </style>
+</head>
+<body>
+  <div id="filters">
+    <label for="provinciaSelect">Provincia:</label>
+    <select id="provinciaSelect"><option value="">Seleccione una</option></select>
+    <label for="cantonSelect">Cantón:</label>
+    <select id="cantonSelect"><option value="">Seleccione uno</option></select>
+    <button onclick="filtrarAeropuertos()">Filtrar Aeropuertos</button>
+    <div id="mensaje"></div>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+  <script>
+    const SUPABASE_URL = "https://pzaxjeqmcqcklaflnbdy.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw";
+
+    const map = L.map('map').setView([-3.99, -79.2], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    const avionIcon = L.icon({
+      iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
+      iconSize: [30, 30],
+      iconAnchor: [15, 15],
+      popupAnchor: [0, -15]
+    });
+
+    async function fetchData(table, filter = "") {
+      const url = `${SUPABASE_URL}/rest/v1/${table}?select=*&${filter}`;
+      const res = await fetch(url, {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+      });
+      return res.json();
+    }
+
+    async function cargarProvincias() {
+      const data = await fetchData("provincias");
+      const select = document.getElementById("provinciaSelect");
+      data.forEach(item => {
+        const opt = document.createElement("option");
+        opt.value = item.PRO_DESCRI;
+        opt.textContent = item.PRO_DESCRI;
+        select.appendChild(opt);
+      });
+    }
+
+    async function cargarCantones(provincia) {
+      const data = await fetchData("canton", `PRO_DESCRI=eq.${encodeURIComponent(provincia)}`);
+      const select = document.getElementById("cantonSelect");
+      select.innerHTML = '<option value="">Seleccione uno</option>';
+      data.forEach(item => {
+        const opt = document.createElement("option");
+        opt.value = item.CAN_DESCRI;
+        opt.textContent = item.CAN_DESCRI;
+        select.appendChild(opt);
+      });
+    }
+
+    document.getElementById("provinciaSelect").addEventListener("change", (e) => {
+      const provincia = e.target.value;
+      if (provincia) cargarCantones(provincia);
+    });
+
+    async function filtrarAeropuertos() {
+      const provincia = document.getElementById("provinciaSelect").value;
+      const canton = document.getElementById("cantonSelect").value;
+      const mensaje = document.getElementById("mensaje");
+      mensaje.innerHTML = "";
+
+      if (!provincia || !canton) {
+        mensaje.innerHTML = "Seleccione provincia y cantón.";
+        return;
+      }
+
+      const cantones = await fetchData("canton", `PRO_DESCRI=eq.${encodeURIComponent(provincia)}&CAN_DESCRI=eq.${encodeURIComponent(canton)}`);
+      if (!cantones.length) return;
+
+      const cantonGeom = cantones[0].geom;
+      const aeropuertos = await fetchData("aeropuertos");
+
+      const features = aeropuertos.filter(a => a.geom && turf.booleanPointInPolygon(a.geom, cantonGeom))
+        .map(a => ({ type: "Feature", geometry: a.geom, properties: a }));
+
+      if (!features.length) {
+        mensaje.innerHTML = `<b>En este cantón no hay aeropuertos.</b>`;
+        return;
+      }
+
+      mensaje.innerHTML = `<b>Se encontraron ${features.length} aeropuerto(s) en el cantón ${canton}.</b>`;
+
+      features.forEach(async f => {
+        const coords = f.geometry.coordinates;
+        const marker = L.marker([coords[1], coords[0]], { icon: avionIcon }).addTo(map);
+        marker.bindPopup(`<b>Aeropuerto</b><br>${Object.entries(f.properties).map(([k, v]) => `${k}: ${v}`).join("<br>")}`);
+
+        // Guardar en la tabla aeropuertos_filtrados
+        await fetch(`${SUPABASE_URL}/rest/v1/aeropuertos_filtrados`, {
+          method: "POST",
+          headers: {
+            apikey: SUPABASE_KEY,
+            Authorization: `Bearer ${SUPABASE_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "return=representation"
+          },
+          body: JSON.stringify({
+            nombre: f.properties.nombre || "Sin nombre",
+            uso: f.properties.uso || "Desconocido",
+            fecha_consulta: new Date().toISOString(),
+            geom: f.geometry
+          })
+        });
+
+        // Notificación a Telegram
+        const mensajeTelegram = `🛬 Nuevo reporte guardado:\nNombre: ${f.properties.nombre || "Sin nombre"}\nUso: ${f.properties.uso || "Desconocido"}\nCantón: ${canton}\nProvincia: ${provincia}\n📅 Fecha: ${new Date().toLocaleString()}`;
+        await fetch(`https://api.telegram.org/bot7281702509:AAG7_xE-oz3bsacGXDqL8cwSnioUyB2LGRw/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: "5153327688",
+            text: mensajeTelegram
+          })
+        });
+      });
+    }
+
+    cargarProvincias();
+  </script>
+</body>
+</html>

@@ -1,0 +1,201 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Senderos del Cantón Paltas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body { margin: 0; display: flex; height: 100vh; font-family: Arial, sans-serif; }
+    #map { flex: 3; }
+    #info { flex: 1; overflow-y: auto; padding: 10px; background: #f8f8f8; border-left: 1px solid #ccc; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 6px; border: 1px solid #ddd; text-align: left; }
+    th { background-color: #e0e0e0; position: sticky; top: 0; }
+    .summary { margin-bottom: 10px; font-weight: bold; }
+    .legend { margin-top: 10px; background: white; padding: 6px; border: 1px solid #ccc; }
+    .legend-item { display: flex; align-items: center; margin-bottom: 4px; }
+    .legend-color { width: 18px; height: 12px; margin-right: 8px; }
+    select { width: 100%; margin-bottom: 10px; padding: 5px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="info">
+    <h3>Senderos del Cantón Paltas</h3>
+    <div id="filtro-container">
+      <label for="filtroCategoria"><strong>Filtrar por descripción:</strong></label>
+      <select id="filtroCategoria">
+<button id="btnBuscar" style="margin-top:5px; padding:6px 10px; background:#007bff; color:white; border:none; cursor:pointer;">Buscar</button>
+        <option value="todos">Todos</option>
+      </select>
+    </div>
+    <div class="summary" id="resumen"></div>
+    <table id="senderos-table">
+      <thead>
+        <tr>
+          <th>Descripción</th>
+          <th>Longitud (m)</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="legend">
+      <strong>Leyenda de Longitudes</strong>
+      <div class="legend-item"><div class="legend-color" style="background:#1a9850;"></div> < 500 m</div>
+      <div class="legend-item"><div class="legend-color" style="background:#91cf60;"></div> 500 - 1000 m</div>
+      <div class="legend-item"><div class="legend-color" style="background:#d9ef8b;"></div> 1000 - 2000 m</div>
+      <div class="legend-item"><div class="legend-color" style="background:#fee08b;"></div> 2000 - 3000 m</div>
+      <div class="legend-item"><div class="legend-color" style="background:#fc8d59;"></div> 3000 - 4000 m</div>
+      <div class="legend-item"><div class="legend-color" style="background:#d73027;"></div> > 4000 m</div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js"></script>
+
+  <script>
+    const supabaseUrl = 'https://pzaxjeqmcqcklaflnbdy.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw';
+    const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+    const map = L.map('map').setView([-3.9946, -79.2041], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    const tabla = document.querySelector('#senderos-table tbody');
+    const resumen = document.querySelector('#resumen');
+    const filtroCategoria = document.querySelector('#filtroCategoria');
+
+    let todosLosSenderos = [];
+
+    function getColor(longitud) {
+      if (longitud < 500) return "#1a9850";
+      else if (longitud < 1000) return "#91cf60";
+      else if (longitud < 2000) return "#d9ef8b";
+      else if (longitud < 3000) return "#fee08b";
+      else if (longitud < 4000) return "#fc8d59";
+      else return "#d73027";
+    }
+
+    function actualizarTablaYSenderos(filtro) {
+      tabla.innerHTML = "";
+      let totalLongitud = 0;
+      let count = 0;
+
+      map.eachLayer(layer => {
+        if (layer instanceof L.GeoJSON) {
+          map.removeLayer(layer);
+        }
+      });
+
+      todosLosSenderos.forEach(sendero => {
+        if (filtro !== "todos" && sendero.descripcio !== filtro) return;
+
+        const longitud = sendero.Shape_Leng;
+        const color = getColor(longitud);
+
+        const geojson = sendero.geom;
+        const layer = L.geoJSON(geojson, {
+          style: { color: color, weight: 3 }
+        }).bindPopup(`
+          <strong>Descripción:</strong> ${sendero.descripcio}<br>
+          <strong>Longitud:</strong> ${longitud.toFixed(2)} m
+        `);
+        layer.addTo(map);
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${sendero.descripcio}</td>
+          <td>${longitud.toFixed(2)}</td>
+        `;
+        tabla.appendChild(row);
+
+        totalLongitud += longitud;
+        count++;
+      });
+
+      resumen.innerText = `Total de senderos: ${count} | Longitud total: ${totalLongitud.toFixed(2)} m`;
+    }
+
+    async function cargarSenderos() {
+      const { data, error } = await supabase
+        .from('vista_senderos')
+        .select('id, descripcio, "Shape_Leng", geom');
+
+      if (error) {
+        console.error('Error al cargar senderos:', error);
+        return;
+      }
+
+      todosLosSenderos = data;
+
+      
+      // Mostrar resultados del filtro
+      const resultadoFiltro = document.createElement('div');
+      resultadoFiltro.style.marginTop = '8px';
+      resultadoFiltro.style.fontStyle = 'italic';
+      document.querySelector('#info').insertBefore(resultadoFiltro, document.querySelector('.legend'));
+
+      function actualizarTablaYSenderos(filtro) {
+        tabla.innerHTML = "";
+        let totalLongitud = 0;
+        let count = 0;
+
+        map.eachLayer(layer => {
+          if (layer instanceof L.GeoJSON) {
+            map.removeLayer(layer);
+          }
+        });
+
+        todosLosSenderos.forEach(sendero => {
+          if (filtro !== "todos" && sendero.descripcio !== filtro) return;
+
+          const longitud = sendero.Shape_Leng;
+          const color = getColor(longitud);
+
+          const geojson = sendero.geom;
+          const layer = L.geoJSON(geojson, {
+            style: { color: color, weight: 3 }
+          }).bindPopup(`
+            <strong>Descripción:</strong> ${sendero.descripcio}<br>
+            <strong>Longitud:</strong> ${longitud.toFixed(2)} m
+          `);
+          layer.addTo(map);
+
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${sendero.descripcio}</td>
+            <td>${longitud.toFixed(2)}</td>
+          `;
+          tabla.appendChild(row);
+
+          totalLongitud += longitud;
+          count++;
+        });
+
+        resumen.innerText = `Total de senderos: ${count} | Longitud total: ${totalLongitud.toFixed(2)} m`;
+        resultadoFiltro.innerText = filtro === "todos" ? "Mostrando todos los senderos" : `Filtrado por: "${filtro}" (${count} resultados)`;
+      }
+    
+      const categorias = [...new Set(data.map(s => s.descripcio))];
+      categorias.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        filtroCategoria.appendChild(opt);
+      });
+
+      document.getElementById('btnBuscar').addEventListener('click', () => {
+        actualizarTablaYSenderos(filtroCategoria.value);
+      });
+
+      actualizarTablaYSenderos("todos");
+    }
+
+    cargarSenderos();
+  </script>
+</body>
+</html>
