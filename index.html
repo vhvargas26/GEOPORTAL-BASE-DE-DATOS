@@ -1,154 +1,42 @@
 
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <title>Geoportal Clasificación de Terreno</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <meta charset="UTF-8">
+  <title>Visor Geográfico del Cantón Paltas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    #map { height: 90vh; }
-    .legend { background: white; padding: 6px; font-size: 12px; }
+    body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; }
+    header { background: #004080; color: white; padding: 20px; text-align: center; }
+    main { padding: 30px; display: flex; flex-direction: column; align-items: center; }
+    a.button {
+      display: block;
+      width: 320px;
+      margin: 10px;
+      padding: 14px;
+      background: #007bff;
+      color: white;
+      text-decoration: none;
+      text-align: center;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+    a.button:hover {
+      background: #0056b3;
+    }
   </style>
 </head>
 <body>
-  <h3>Clasificación de Terreno por Coordenadas UTM (zona 17S)</h3>
-  <label>Este (UTM): <input type="number" id="utmE" step="0.001" /></label>
-  <label>Norte (UTM): <input type="number" id="utmN" step="0.001" /></label>
-  <button onclick="clasificarTerreno()">Clasificar</button>
-  <p id="resultado" style="font-weight: bold; color: green;"></p>
-  <div id="map"></div>
-
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-
-  
-  <script src="https://unpkg.com/proj4@2.8.0/dist/proj4.js"></script>
-
-  <script>
-    const map = L.map('map').setView([-3.99, -79.2], 10);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
-
-    let marcador;
-
-    const SUPABASE_URL = 'https://pzaxjeqmcqcklaflnbdy.supabase.co';
-    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw';
-    const supabase = window.supabase;
-
-    async function clasificarTerreno() {
-      const utmE = parseFloat(document.getElementById("utmE").value);
-      const utmN = parseFloat(document.getElementById("utmN").value);
-
-      if (!utmE || !utmN) {
-        alert("Ingrese coordenadas UTM válidas.");
-        return;
-      }
-
-      const projUTM = "+proj=utm +zone=17 +south +datum=WGS84 +units=m +no_defs";
-      const projWGS84 = "+proj=longlat +datum=WGS84 +no_defs";
-      const [lon, lat] = proj4(projUTM, projWGS84, [utmE, utmN]);
-
-      if (marcador) {
-        map.removeLayer(marcador);
-      }
-
-      marcador = L.marker([lat, lon]).addTo(map).bindPopup("📍 Punto ingresado").openPopup();
-      map.setView([lat, lon], 14);
-
-      // Ejecutar función SQL en Supabase
-      const { data, error } = await supabase.rpc("clasificar_terreno", {
-        lat: lat,
-        lon: lon
-      });
-
-      if (error || !data) {
-        document.getElementById("resultado").innerHTML = "⚠️ No se encontró curva de nivel cercana.";
-        return;
-      }
-
-      
-      // Si 'data' viene como JSON con campos clasificacion y pendiente
-      if (typeof data === 'object' && data.clasificacion && data.pendiente) {
-        document.getElementById("resultado").innerHTML = `✅ Clasificación: ${data.clasificacion}<br>📐 Pendiente: ${data.pendiente.toFixed(2)} %`;
-      } else {
-        document.getElementById("resultado").innerHTML = `✅ Clasificación: ${data}`;
-      }
-    
-
-      // Guardar en la tabla
-      await supabase.from("clasificacion_terreno").insert([{
-        latitud: lat,
-        longitud: lon,
-        utm_e: utmE,
-        utm_n: utmN,
-        clasificacion: data
-      }]);
-    }
-  </script>
-
-<script type="module">
-  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
-  import proj4 from 'https://cdn.jsdelivr.net/npm/proj4@2.8.0/+esm'
-
-  const supabaseUrl = 'https://pzaxjeqmcqcklaflnbdy.supabase.co'
-  const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw'
-  const supabase = createClient(supabaseUrl, supabaseKey)
-  window.supabase = supabase
-
-  const map = L.map('map').setView([-3.99, -79.2], 10)
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors'
-  }).addTo(map)
-
-  let marcador
-
-  window.clasificarTerreno = async function () {
-    const utmE = parseFloat(document.getElementById("utmE").value)
-    const utmN = parseFloat(document.getElementById("utmN").value)
-
-    if (!utmE || !utmN) {
-      alert("Ingrese coordenadas UTM válidas.")
-      return
-    }
-
-    const projUTM = "+proj=utm +zone=17 +south +datum=WGS84 +units=m +no_defs"
-    const projWGS84 = "+proj=longlat +datum=WGS84 +no_defs"
-    const [lon, lat] = proj4(projUTM, projWGS84, [utmE, utmN])
-
-    if (marcador) {
-      map.removeLayer(marcador)
-    }
-
-    marcador = L.marker([lat, lon]).addTo(map).bindPopup("📍 Punto ingresado").openPopup()
-    map.setView([lat, lon], 14)
-
-    const { data, error } = await supabase.rpc("clasificar_terreno", { lat, lon })
-
-    if (error || !data) {
-      document.getElementById("resultado").innerHTML = "⚠️ Error al consultar clasificación del terreno."
-      return
-    }
-
-    if (data.clasificacion && data.pendiente !== null) {
-      document.getElementById("resultado").innerHTML = `✅ Clasificación: ${data.clasificacion}<br>📐 Pendiente: ${data.pendiente}%`
-    } else {
-      document.getElementById("resultado").innerHTML = `⚠️ ${data.clasificacion}`
-    }
-
-    await supabase.from("clasificacion_terreno").insert([{
-      latitud: lat,
-      longitud: lon,
-      utm_e: utmE,
-      utm_n: utmN,
-      clasificacion: data.clasificacion,
-      pendiente: data.pendiente
-    }])
-  }
-</script>
-
+  <header>
+    <h1>VISOR GEOGRÁFICO DEL CANTÓN PALTAS</h1>
+    <p>Integración de 5 geoportales con Supabase</p>
+  </header>
+  <main>
+    <a class="button" href="aeropuertos.html" target="_blank">🛫 Aeropuertos del Ecuador</a>
+    <a class="button" href="Geoportal_Clasificacion_Pendiente_Final.html" target="_blank">🌄 Clasificación de Pendientes</a>
+    <a class="button" href="geoportal_reportes.html" target="_blank">📢 Reportes Ciudadanos</a>
+    <a class="button" href="geoportal_rio_consulta_filtrada.html" target="_blank">🌊 Consulta de Ríos</a>
+    <a class="button" href="senderos_canton_paltas_buscar.html" target="_blank">🥾 Senderos del Cantón Paltas</a>
+  </main>
 </body>
 </html>
-
-
