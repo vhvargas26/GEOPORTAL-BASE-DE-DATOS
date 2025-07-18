@@ -1,83 +1,154 @@
+
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Geoportal Supabase</title>
+  <title>Geoportal Clasificación de Terreno</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
-    #map { height: 100vh; }
+    #map { height: 90vh; }
     .legend { background: white; padding: 6px; font-size: 12px; }
   </style>
 </head>
 <body>
+  <h3>Clasificación de Terreno por Coordenadas UTM (zona 17S)</h3>
+  <label>Este (UTM): <input type="number" id="utmE" step="0.001" /></label>
+  <label>Norte (UTM): <input type="number" id="utmN" step="0.001" /></label>
+  <button onclick="clasificarTerreno()">Clasificar</button>
+  <p id="resultado" style="font-weight: bold; color: green;"></p>
   <div id="map"></div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+
+  
+  <script src="https://unpkg.com/proj4@2.8.0/dist/proj4.js"></script>
+
   <script>
-    const SUPABASE_URL = "https://pzaxjeqmcqcklaflnbdy.supabase.co";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw";
-
-    const layers = [
-      'aeropuertos', 'acueducto_l', 'canton', 'casa_p', 'curva_nivel_l',
-      'caracteristica_terreno_a', 'parroquias', 'pueblos', 'rio_a', 'poblados',
-      'puente_p', 'sendero_l', 'reporte_usuarios', 'via_paltas', 'provincias',
-      'vias', 'zona_urbana_a'
-    ];
-
-    const map = L.map('map').setView([-3.99, -79.2], 8);
+    const map = L.map('map').setView([-3.99, -79.2], 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    const layerControl = L.control.layers(null, null, { collapsed: false }).addTo(map);
+    let marcador;
 
-    async function loadLayer(tableName, color = 'blue') {
-      const url = `${SUPABASE_URL}/rest/v1/${tableName}?select=*&apikey=${SUPABASE_KEY}`;
-      const res = await fetch(url, {
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-        },
+    const SUPABASE_URL = 'https://pzaxjeqmcqcklaflnbdy.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw';
+    const supabase = window.supabase;
+
+    async function clasificarTerreno() {
+      const utmE = parseFloat(document.getElementById("utmE").value);
+      const utmN = parseFloat(document.getElementById("utmN").value);
+
+      if (!utmE || !utmN) {
+        alert("Ingrese coordenadas UTM válidas.");
+        return;
+      }
+
+      const projUTM = "+proj=utm +zone=17 +south +datum=WGS84 +units=m +no_defs";
+      const projWGS84 = "+proj=longlat +datum=WGS84 +no_defs";
+      const [lon, lat] = proj4(projUTM, projWGS84, [utmE, utmN]);
+
+      if (marcador) {
+        map.removeLayer(marcador);
+      }
+
+      marcador = L.marker([lat, lon]).addTo(map).bindPopup("📍 Punto ingresado").openPopup();
+      map.setView([lat, lon], 14);
+
+      // Ejecutar función SQL en Supabase
+      const { data, error } = await supabase.rpc("clasificar_terreno", {
+        lat: lat,
+        lon: lon
       });
 
-      const data = await res.json();
-      if (!data.length) return;
+      if (error || !data) {
+        document.getElementById("resultado").innerHTML = "⚠️ No se encontró curva de nivel cercana.";
+        return;
+      }
 
-      const geojson = {
-        type: "FeatureCollection",
-        features: data.map(row => {
-          return {
-            type: "Feature",
-            geometry: row.geometry || row.geom,
-            properties: row
-          };
-        })
-      };
+      
+      // Si 'data' viene como JSON con campos clasificacion y pendiente
+      if (typeof data === 'object' && data.clasificacion && data.pendiente) {
+        document.getElementById("resultado").innerHTML = `✅ Clasificación: ${data.clasificacion}<br>📐 Pendiente: ${data.pendiente.toFixed(2)} %`;
+      } else {
+        document.getElementById("resultado").innerHTML = `✅ Clasificación: ${data}`;
+      }
+    
 
-      const layer = L.geoJSON(geojson, {
-        style: { color },
-        onEachFeature: function (feature, layer) {
-          let props = feature.properties;
-          let popupContent = "<b>" + tableName + "</b><br>" + Object.entries(props).map(([k, v]) => `${k}: ${v}`).join("<br>");
-          layer.bindPopup(popupContent);
-        }
-      });
+      // Guardar en la tabla
+      await supabase.from("clasificacion_terreno").insert([{
+        latitud: lat,
+        longitud: lon,
+        utm_e: utmE,
+        utm_n: utmN,
+        clasificacion: data
+      }]);
+    }
+  </script>
 
-      layer.addTo(map);
-      layerControl.addOverlay(layer, tableName);
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
+  import proj4 from 'https://cdn.jsdelivr.net/npm/proj4@2.8.0/+esm'
+
+  const supabaseUrl = 'https://pzaxjeqmcqcklaflnbdy.supabase.co'
+  const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6YXhqZXFtY3Fja2xhZmxuYmR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzODMwODMsImV4cCI6MjA2Nzk1OTA4M30.3Y5l7MiNoX0Nebac6Dav8AohmYqTfFhwZGND8RilYmw'
+  const supabase = createClient(supabaseUrl, supabaseKey)
+  window.supabase = supabase
+
+  const map = L.map('map').setView([-3.99, -79.2], 10)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map)
+
+  let marcador
+
+  window.clasificarTerreno = async function () {
+    const utmE = parseFloat(document.getElementById("utmE").value)
+    const utmN = parseFloat(document.getElementById("utmN").value)
+
+    if (!utmE || !utmN) {
+      alert("Ingrese coordenadas UTM válidas.")
+      return
     }
 
-    // Colores alternos para diferenciar capas
-    const colors = ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00',
-                    '#ffff33','#a65628','#f781bf','#999999','#66c2a5',
-                    '#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f',
-                    '#e5c494','#b3b3b3'];
+    const projUTM = "+proj=utm +zone=17 +south +datum=WGS84 +units=m +no_defs"
+    const projWGS84 = "+proj=longlat +datum=WGS84 +no_defs"
+    const [lon, lat] = proj4(projUTM, projWGS84, [utmE, utmN])
 
-    layers.forEach((layerName, i) => {
-      loadLayer(layerName, colors[i % colors.length]);
-    });
-  </script>
+    if (marcador) {
+      map.removeLayer(marcador)
+    }
+
+    marcador = L.marker([lat, lon]).addTo(map).bindPopup("📍 Punto ingresado").openPopup()
+    map.setView([lat, lon], 14)
+
+    const { data, error } = await supabase.rpc("clasificar_terreno", { lat, lon })
+
+    if (error || !data) {
+      document.getElementById("resultado").innerHTML = "⚠️ Error al consultar clasificación del terreno."
+      return
+    }
+
+    if (data.clasificacion && data.pendiente !== null) {
+      document.getElementById("resultado").innerHTML = `✅ Clasificación: ${data.clasificacion}<br>📐 Pendiente: ${data.pendiente}%`
+    } else {
+      document.getElementById("resultado").innerHTML = `⚠️ ${data.clasificacion}`
+    }
+
+    await supabase.from("clasificacion_terreno").insert([{
+      latitud: lat,
+      longitud: lon,
+      utm_e: utmE,
+      utm_n: utmN,
+      clasificacion: data.clasificacion,
+      pendiente: data.pendiente
+    }])
+  }
+</script>
+
 </body>
 </html>
+
 
