@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -27,9 +26,9 @@
     <div id="filtro-container">
       <label for="filtroCategoria"><strong>Filtrar por descripción:</strong></label>
       <select id="filtroCategoria">
-<button id="btnBuscar" style="margin-top:5px; padding:6px 10px; background:#007bff; color:white; border:none; cursor:pointer;">Buscar</button>
         <option value="todos">Todos</option>
       </select>
+      <button id="btnBuscar" style="margin-top:5px; padding:6px 10px; background:#007bff; color:white; border:none; cursor:pointer;">Buscar</button>
     </div>
     <div class="summary" id="resumen"></div>
     <table id="senderos-table">
@@ -132,54 +131,6 @@
 
       todosLosSenderos = data;
 
-      
-      // Mostrar resultados del filtro
-      const resultadoFiltro = document.createElement('div');
-      resultadoFiltro.style.marginTop = '8px';
-      resultadoFiltro.style.fontStyle = 'italic';
-      document.querySelector('#info').insertBefore(resultadoFiltro, document.querySelector('.legend'));
-
-      function actualizarTablaYSenderos(filtro) {
-        tabla.innerHTML = "";
-        let totalLongitud = 0;
-        let count = 0;
-
-        map.eachLayer(layer => {
-          if (layer instanceof L.GeoJSON) {
-            map.removeLayer(layer);
-          }
-        });
-
-        todosLosSenderos.forEach(sendero => {
-          if (filtro !== "todos" && sendero.descripcio !== filtro) return;
-
-          const longitud = sendero.Shape_Leng;
-          const color = getColor(longitud);
-
-          const geojson = sendero.geom;
-          const layer = L.geoJSON(geojson, {
-            style: { color: color, weight: 3 }
-          }).bindPopup(`
-            <strong>Descripción:</strong> ${sendero.descripcio}<br>
-            <strong>Longitud:</strong> ${longitud.toFixed(2)} m
-          `);
-          layer.addTo(map);
-
-          const row = document.createElement('tr');
-          row.innerHTML = `
-            <td>${sendero.descripcio}</td>
-            <td>${longitud.toFixed(2)}</td>
-          `;
-          tabla.appendChild(row);
-
-          totalLongitud += longitud;
-          count++;
-        });
-
-        resumen.innerText = `Total de senderos: ${count} | Longitud total: ${totalLongitud.toFixed(2)} m`;
-        resultadoFiltro.innerText = filtro === "todos" ? "Mostrando todos los senderos" : `Filtrado por: "${filtro}" (${count} resultados)`;
-      }
-    
       const categorias = [...new Set(data.map(s => s.descripcio))];
       categorias.forEach(c => {
         const opt = document.createElement('option');
